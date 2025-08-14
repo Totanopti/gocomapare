@@ -102,3 +102,7 @@ def compare_products(request: CompareRequest):
             "domain": domain,
             "google_results": google_results
         }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
