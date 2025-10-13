@@ -5,8 +5,8 @@ import requests
 app = FastAPI()
 
 # Oxylabs credentials
-OXYLABS_USERNAME = "optisage_8CVy6"
-OXYLABS_PASSWORD = "Optisage_205"
+OXYLABS_USERNAME = "optisage_sV9jx"
+OXYLABS_PASSWORD = "Optisage_25_10"
 OXYLABS_ENDPOINT = "https://realtime.oxylabs.io/v1/queries"
 
 # Mapping country names to Google domains
@@ -106,4 +106,5 @@ def compare_products(request: CompareRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
