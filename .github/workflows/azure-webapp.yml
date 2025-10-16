@@ -11,7 +11,7 @@ env:
   PYTHON_VERSION: '3.12'
 
 permissions:
-  id-token: write   # Required for OIDC
+  id-token: write    # Required for OIDC
   contents: read
 
 jobs:
@@ -58,7 +58,7 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          auth-type: OIDC
+          # The 'auth-type: OIDC' line was removed here.
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
