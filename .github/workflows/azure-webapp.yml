@@ -11,8 +11,8 @@ env:
   PYTHON_VERSION: '3.12'
 
 permissions:
-  id-token: write   # Required for OIDC login
   contents: read
+  id-token: write   # not needed for SP secret login, but okay to leave
 
 jobs:
   build:
@@ -52,16 +52,16 @@ jobs:
         with:
           name: python-app
 
-      - name: Log in to Azure using Service Principal (OIDC)
+      - name: Azure Login via Service Principal
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}      # github-oidc-gocompare1 Client ID
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          auth-type: SERVICE_PRINCIPAL
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
         with:
           app-name: 'gocompare1'
-          package: .
+          package: python-app
