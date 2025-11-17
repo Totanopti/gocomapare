@@ -38,7 +38,6 @@ jobs:
         with:
           name: python-app
           path: .
-          # Excludes the virtual environment
           retention-days: 1
 
   deploy:
@@ -50,6 +49,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: python-app
+          path: ./app   # <- Important: download to ./app folder
 
       - name: Azure Login via Service Principal
         uses: azure/login@v2
@@ -61,4 +61,4 @@ jobs:
         uses: azure/webapps-deploy@v2
         with:
           app-name: 'gocompare1'
-          package: python-app/   # deploy folder contents directly
+          package: ./app   # <- Deploy the folder with repo files
