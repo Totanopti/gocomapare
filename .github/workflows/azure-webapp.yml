@@ -65,6 +65,3 @@ jobs:
         with:
           app-name: 'gocompare1'
           package: python-app
-
-          app-name: 'gocompare1'
-          package: python-app
