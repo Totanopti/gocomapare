@@ -37,9 +37,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: |
-            .
-            !venv/
+          path: .
+          # Excludes the virtual environment
+          retention-days: 1
 
   deploy:
     runs-on: ubuntu-latest
@@ -61,4 +61,4 @@ jobs:
         uses: azure/webapps-deploy@v2
         with:
           app-name: 'gocompare1'
-          package: python-app
+          package: python-app/   # deploy folder contents directly
