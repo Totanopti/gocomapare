@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import requests
 
 app = FastAPI()
-
+# --- 1. ADD REDIS IMPORTS ---
 # Oxylabs credentials
 OXYLABS_USERNAME = "optisage_sV9jx"
 OXYLABS_PASSWORD = "Optisage_25_10"
@@ -106,6 +106,7 @@ def compare_products(request: CompareRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
 
 
