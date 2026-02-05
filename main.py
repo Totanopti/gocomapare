@@ -129,7 +129,7 @@ def google_shopping_product_details(product_token: str, country_config: dict):
     payload = {
         "source": "google_shopping_product",
         "domain": country_config["google_domain"],
-        "query": product_token,  # The token from search results
+        "query": product_token,  # Use the token from search results
         "parse": True,
         "render": "html",
         "geo_location": country_config["geo_location"],
@@ -194,10 +194,10 @@ def google_shopping_search_with_details(product_name: str, country_config: dict,
                     if details_fetched >= max_details:
                         break
                     
-                    # Get the product token (required for fetching details)
-                    product_token = product.get("product_id")
+                    # **FIX: Use 'token' instead of 'product_id'**
+                    product_token = product.get("token")
                     if product_token:
-                        print(f"Fetching details for product token: {product_token}")
+                        print(f"Fetching details for product: {product.get('title', 'Unknown')[:50]}...")
                         details = google_shopping_product_details(
                             product_token, 
                             country_config
@@ -215,9 +215,9 @@ def google_shopping_search_with_details(product_name: str, country_config: dict,
                             product["images"] = details.get("images", {})
                             
                             details_fetched += 1
-                            print(f"Successfully fetched details ({details_fetched}/{max_details})")
+                            print(f"✓ Successfully fetched details ({details_fetched}/{max_details})")
                         else:
-                            print(f"Failed to fetch details for token: {product_token}")
+                            print(f"✗ Failed to fetch details for token: {product_token[:30]}...")
                 
                 # Also process PLA (ads) if needed
                 pla = content.get("pla", [])
@@ -227,9 +227,9 @@ def google_shopping_search_with_details(product_name: str, country_config: dict,
                         if details_fetched >= max_details:
                             break
                         
-                        product_token = product.get("product_id")
+                        product_token = product.get("token")
                         if product_token:
-                            print(f"Fetching details for ad product token: {product_token}")
+                            print(f"Fetching details for ad product: {product.get('title', 'Unknown')[:50]}...")
                             details = google_shopping_product_details(
                                 product_token, 
                                 country_config
@@ -243,7 +243,7 @@ def google_shopping_search_with_details(product_name: str, country_config: dict,
                                 product["specifications"] = details.get("specifications", [])
                                 
                                 details_fetched += 1
-                                print(f"Successfully fetched ad details ({details_fetched}/{max_details})")
+                                print(f"✓ Successfully fetched ad details ({details_fetched}/{max_details})")
 
         return search_results
 
