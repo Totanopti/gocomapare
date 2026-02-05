@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
-from typing import Optional, List, Dict, Any
+from typing import Optional
 import time
 
 app = FastAPI()
@@ -62,22 +62,25 @@ COUNTRY_CONFIG = {
 }
 
 # =========================
-# Request model (CLEAN)
+# Request model
 # =========================
 class CompareRequest(BaseModel):
     search: str
     country: str
     pages: Optional[int] = 1
+    max_details: Optional[int] = 10  # Max products to fetch full details for
 
 
 # =========================
 # Helpers
 # =========================
 def is_asin(text: str) -> bool:
+    """Check if text is a valid Amazon ASIN"""
     return len(text.strip()) == 10 and text.strip().isalnum()
 
 
-def post_with_retry(payload: dict, retries: int = 3) -> requests.Response:
+def post_with_retry(payload: dict, retries: int = 3):
+    """Make API request with retry logic for rate limiting"""
     for attempt in range(retries):
         response = requests.post(
             OXYLABS_ENDPOINT,
@@ -95,6 +98,7 @@ def post_with_retry(payload: dict, retries: int = 3) -> requests.Response:
 
 
 def get_amazon_product_title(asin: str, domain: str) -> Optional[str]:
+    """Fetch product title from Amazon using ASIN"""
     payload = {
         "source": "amazon_product",
         "domain": domain,
@@ -117,8 +121,44 @@ def get_amazon_product_title(asin: str, domain: str) -> Optional[str]:
         return None
 
 
-def google_shopping_search(product_name: str, country_config: dict, pages: int) -> Dict[str, Any]:
+def google_shopping_product_details(product_token: str, country_config: dict):
+    """
+    Fetch detailed product information including URL using product token.
+    This is the KEY function to get product URLs.
+    """
     payload = {
+        "source": "google_shopping_product",
+        "domain": country_config["google_domain"],
+        "query": product_token,  # The token from search results
+        "parse": True,
+        "render": "html",
+        "geo_location": country_config["geo_location"],
+        "locale": country_config["locale"]
+    }
+
+    try:
+        response = post_with_retry(payload)
+        if response.status_code != 200:
+            print(f"Error fetching product details: {response.status_code}")
+            return None
+
+        data = response.json()
+        result = data.get("results", [{}])[0]
+        content = result.get("content", {})
+        
+        return content
+
+    except Exception as e:
+        print(f"Exception fetching product details: {str(e)}")
+        return None
+
+
+def google_shopping_search_with_details(product_name: str, country_config: dict, pages: int, max_details: int = 10):
+    """
+    Search for products and fetch full details (including URLs) for top results
+    """
+    # Step 1: Get search results with product tokens
+    search_payload = {
         "source": "google_shopping_search",
         "domain": country_config["google_domain"],
         "query": product_name,
@@ -131,111 +171,84 @@ def google_shopping_search(product_name: str, country_config: dict, pages: int) 
     }
 
     try:
-        response = post_with_retry(payload)
+        response = post_with_retry(search_payload)
         if response.status_code != 200:
             return {
                 "error": f"API error: {response.status_code}",
                 "details": response.text[:200]
             }
 
-        return response.json()
+        search_results = response.json()
+
+        # Step 2: Fetch full details for each product (up to max_details)
+        if "results" in search_results:
+            details_fetched = 0
+            
+            for result in search_results["results"]:
+                content = result.get("content", {}).get("results", {})
+                
+                # Process organic results
+                organic = content.get("organic", [])
+                for product in organic:
+                    # Stop if we've reached the limit
+                    if details_fetched >= max_details:
+                        break
+                    
+                    # Get the product token (required for fetching details)
+                    product_token = product.get("product_id")
+                    if product_token:
+                        print(f"Fetching details for product token: {product_token}")
+                        details = google_shopping_product_details(
+                            product_token, 
+                            country_config
+                        )
+                        
+                        if details:
+                            # Add full details to the product
+                            product["product_url"] = details.get("url")
+                            product["description"] = details.get("description")
+                            product["pricing"] = details.get("pricing", {})
+                            product["reviews"] = details.get("reviews", {})
+                            product["specifications"] = details.get("specifications", [])
+                            product["related_items"] = details.get("related_items", [])
+                            product["variants"] = details.get("variants", [])
+                            product["images"] = details.get("images", {})
+                            
+                            details_fetched += 1
+                            print(f"Successfully fetched details ({details_fetched}/{max_details})")
+                        else:
+                            print(f"Failed to fetch details for token: {product_token}")
+                
+                # Also process PLA (ads) if needed
+                pla = content.get("pla", [])
+                for ad_group in pla:
+                    items = ad_group.get("items", [])
+                    for product in items:
+                        if details_fetched >= max_details:
+                            break
+                        
+                        product_token = product.get("product_id")
+                        if product_token:
+                            print(f"Fetching details for ad product token: {product_token}")
+                            details = google_shopping_product_details(
+                                product_token, 
+                                country_config
+                            )
+                            
+                            if details:
+                                product["product_url"] = details.get("url")
+                                product["description"] = details.get("description")
+                                product["pricing"] = details.get("pricing", {})
+                                product["reviews"] = details.get("reviews", {})
+                                product["specifications"] = details.get("specifications", [])
+                                
+                                details_fetched += 1
+                                print(f"Successfully fetched ad details ({details_fetched}/{max_details})")
+
+        return search_results
 
     except Exception as e:
         return {"error": str(e)}
-
-
-def google_shopping_product(product_token: str, country_config: dict) -> Dict[str, Any]:
-    """Get detailed product information including seller URLs"""
-    payload = {
-        "source": "google_shopping_product",
-        "query": product_token,
-        "parse": True,
-        "render": "html",
-        "domain": country_config["google_domain"],
-        "geo_location": country_config["geo_location"],
-        "locale": country_config["locale"],
-    }
-
-    try:
-        response = post_with_retry(payload)
-        if response.status_code != 200:
-            return {
-                "error": f"API error: {response.status_code}",
-                "details": response.text[:200]
-            }
-
-        return response.json()
-
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def extract_product_tokens_from_search(search_results: Dict[str, Any]) -> List[str]:
-    """Extract product tokens from search results"""
-    tokens = []
-    
-    if "error" in search_results:
-        return tokens
-    
-    try:
-        for result in search_results.get("results", []):
-            content = result.get("content", {})
-            search_content = content.get("results", {})
-            
-            # Check organic results
-            for organic in search_content.get("organic", []):
-                if "product_token" in organic:
-                    tokens.append(organic["product_token"])
-            
-            # Check PLA results (ads)
-            for pla in search_content.get("pla", []):
-                for item in pla.get("items", []):
-                    if "product_token" in item:
-                        tokens.append(item["product_token"])
-    
-    except Exception as e:
-        print(f"Error extracting tokens: {e}")
-    
-    return tokens
-
-
-def process_product_details(product_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract and format product details with seller URLs"""
-    if "error" in product_data:
-        return product_data
-    
-    try:
-        result = product_data.get("results", [{}])[0]
-        content = result.get("content", {})
-        
-        # Extract seller URLs from pricing information
-        seller_urls = []
-        if "pricing" in content and "online" in content["pricing"]:
-            for seller_info in content["pricing"]["online"]:
-                seller_urls.append({
-                    "seller": seller_info.get("seller"),
-                    "url": seller_info.get("seller_link"),
-                    "price": seller_info.get("price"),
-                    "currency": seller_info.get("currency"),
-                    "shipping": seller_info.get("price_shipping"),
-                    "condition": seller_info.get("condition")
-                })
-        
-        return {
-            "title": content.get("title"),
-            "description": content.get("description"),
-            "url": content.get("url"),
-            "seller_urls": seller_urls,
-            "total_sellers": len(seller_urls),
-            "images": content.get("images", {}).get("full_size", []),
-            "reviews": content.get("reviews", {}),
-            "specifications": content.get("specifications", []),
-            "variants": content.get("variants", []),
-            "related_items": content.get("related_items", [])
-        }
-    
-    except Exception as e:
-        return {"error": f"Error processing product data: {str(e)}"}
 
 
 # =========================
@@ -243,18 +256,22 @@ def process_product_details(product_data: Dict[str, Any]) -> Dict[str, Any]:
 # =========================
 @app.post("/compare")
 def compare_products(request: CompareRequest):
+    """
+    Main endpoint to compare products across platforms
+    Now includes full product URLs from Google Shopping
+    """
     search_term = request.search.strip()
     country = request.country.lower().replace(" ", "_")
 
     if country not in COUNTRY_CONFIG:
         raise HTTPException(
             status_code=400,
-            detail=f"Country '{country}' not supported"
+            detail=f"Country '{country}' not supported. Available: {list(COUNTRY_CONFIG.keys())}"
         )
 
     country_config = COUNTRY_CONFIG[country]
 
-    # ASIN flow
+    # Handle ASIN input
     if is_asin(search_term):
         title = get_amazon_product_title(search_term, country_config["amazon_domain"])
         product_name = title or search_term
@@ -263,109 +280,41 @@ def compare_products(request: CompareRequest):
         product_name = search_term
         input_type = "Product Name"
 
-    # Step 1: Search for products
-    google_search_results = google_shopping_search(
+    # Fetch Google Shopping results with full product details
+    google_results = google_shopping_search_with_details(
         product_name=product_name,
         country_config=country_config,
-        pages=request.pages
+        pages=request.pages,
+        max_details=request.max_details
     )
-    
-    if "error" in google_search_results:
-        return {
-            "status": "failed",
-            "error": google_search_results["error"],
-            "details": google_search_results.get("details", "")
-        }
-    
-    # Step 2: Extract product tokens
-    product_tokens = extract_product_tokens_from_search(google_search_results)
-    
-    if not product_tokens:
-        return {
-            "status": "success",
-            "message": "No products found",
-            "input_type": input_type,
-            "search_term": product_name,
-            "country": country,
-            "products_found": 0,
-            "product_details": []
-        }
-    
-    # Step 3: Get detailed info for ALL products (no max limit)
-    product_details = []
-    
-    for i, token in enumerate(product_tokens):
-        product_data = google_shopping_product(token, country_config)
-        
-        if "error" not in product_data:
-            detailed_info = process_product_details(product_data)
-            product_details.append({
-                "product_index": i + 1,
-                "product_token": token,
-                **detailed_info
-            })
-        
-        # Small delay between requests to avoid rate limiting
-        if i < len(product_tokens) - 1:
-            time.sleep(1)  # 1 second delay between requests
-    
-    # Prepare response
+
     response = {
-        "status": "success",
+        "status": "success" if "error" not in google_results else "failed",
         "input_type": input_type,
         "search_term": product_name,
         "country": country,
         "google_domain": country_config["google_domain"],
         "geo_location": country_config["geo_location"],
         "locale": country_config["locale"],
-        "total_products_found": len(product_tokens),
-        "products_processed": len(product_details),
-        "product_details": product_details
+        "max_details_fetched": request.max_details,
+        "google_results": google_results
     }
-    
-    # Count products from search results
-    try:
-        first_result = google_search_results.get("results", [{}])[0]
-        content = first_result.get("content", {}).get("results", {})
-        response["search_summary"] = {
-            "organic_results": len(content.get("organic", [])),
-            "ads_results": sum(len(p.get("items", [])) for p in content.get("pla", []))
+
+    # Add product count summary
+    if "results" in google_results:
+        first = google_results["results"][0]
+        content = first.get("content", {}).get("results", {})
+        
+        organic_products = content.get("organic", [])
+        products_with_urls = sum(1 for p in organic_products if p.get("product_url"))
+        
+        response["products_found"] = {
+            "organic": len(organic_products),
+            "organic_with_urls": products_with_urls,
+            "ads": sum(len(p.get("items", [])) for p in content.get("pla", []))
         }
-    except:
-        pass
-    
+
     return response
-
-
-@app.post("/product-details")
-def get_product_details(product_token: str, country: str):
-    """Get detailed information for a specific product token"""
-    country = country.lower().replace(" ", "_")
-    
-    if country not in COUNTRY_CONFIG:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Country '{country}' not supported"
-        )
-    
-    country_config = COUNTRY_CONFIG[country]
-    
-    product_data = google_shopping_product(product_token, country_config)
-    
-    if "error" in product_data:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get product details: {product_data['error']}"
-        )
-    
-    detailed_info = process_product_details(product_data)
-    
-    return {
-        "status": "success",
-        "product_token": product_token,
-        "country": country,
-        **detailed_info
-    }
 
 
 # =========================
@@ -374,34 +323,43 @@ def get_product_details(product_token: str, country: str):
 @app.get("/")
 def root():
     return {
-        "message": "Product Comparison API",
-        "endpoints": {
-            "compare": "POST /compare - Search and compare products",
-            "product_details": "POST /product-details - Get details for specific product token",
-            "countries": "GET /countries - List supported countries"
-        },
-        "example_request": {
-            "compare": {
+        "message": "Product Comparison API with Full Product URLs",
+        "version": "2.0",
+        "examples": {
+            "asin": {
+                "search": "B0CJT9WCRD",
+                "country": "united_states",
+                "pages": 1,
+                "max_details": 5
+            },
+            "product": {
                 "search": "PlayStation DualSense Controller",
                 "country": "united_states",
-                "pages": 1
-            },
-            "product_details": {
-                "product_token": "your_product_token_here",
-                "country": "united_states"
+                "pages": 1,
+                "max_details": 10
             }
-        }
+        },
+        "note": "max_details controls how many products to fetch full URLs for (to manage API costs)"
     }
 
 
 @app.get("/countries")
 def list_countries():
-    return COUNTRY_CONFIG
+    """List all supported countries and their configurations"""
+    return {
+        "supported_countries": list(COUNTRY_CONFIG.keys()),
+        "configurations": COUNTRY_CONFIG
+    }
 
 
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "Product Comparison API",
+        "version": "2.0"
+    }
 
 
 # =========================
